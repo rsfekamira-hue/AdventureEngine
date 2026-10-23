@@ -1,0 +1,13 @@
+[package]
+name = "sprite-renderer"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+render-contract.workspace = true
+wgpu.workspace = true
+bytemuck = { version = "1.21", features = ["derive"] }
+futures-channel = "0.3"
+
+[dev-dependencies]
+pollster = "0.3"

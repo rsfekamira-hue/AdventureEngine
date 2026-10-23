@@ -1,0 +1,4 @@
+[package]
+name = "render-contract"
+version.workspace = true
+edition.workspace = true

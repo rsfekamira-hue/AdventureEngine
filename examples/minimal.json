@@ -1,0 +1,15 @@
+{
+  "schema_version": 3,
+  "parameter_sets": {"state": {"count": 0}},
+  "flows": [{
+    "id": "sample-flow",
+    "start_flow_node": "menu",
+    "flow_nodes": {
+      "menu": {"kind": "choice", "next": {"type": "fixed", "node": "post"}, "choices": [{"id": "continue", "destination": "line"}]},
+      "post": {"kind": "auto", "next": {"type": "selected_destination"}},
+      "line": {"kind": "advance", "next": {"type": "fixed", "node": "end"}},
+      "end": {"kind": "end"}
+    }
+  }],
+  "events": [{"id": "sample", "flow": "sample-flow", "parameter_set": "state"}]
+}

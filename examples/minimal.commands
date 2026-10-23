@@ -1,0 +1,9 @@
+check /currentEventId "sample"
+check /dialogue/currentFlowNodeId "menu"
+choose-id continue
+check /dialogue/currentFlowNodeId "line"
+advance
+check /status "completed"
+restart
+check /dialogue/currentFlowNodeId "menu"
+quit
