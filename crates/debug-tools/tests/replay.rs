@@ -111,3 +111,58 @@ fn invalid_commands_fail_during_parsing() {
         assert!(CliInput::<Cursor<&str>>::parse(source).is_err(), "{source}");
     }
 }
+
+struct Host {
+    captures: Vec<u32>,
+    fail: bool,
+}
+impl engine_debug_tools::cli::CliHost<Counter> for Host {
+    fn display(&mut self, target: &Counter, out: &mut dyn std::io::Write) -> Result<(), String> {
+        writeln!(out, "display {}", target.count).map_err(|e| e.to_string())
+    }
+    fn capture(&mut self, target: &Counter, name: &str) -> Result<String, String> {
+        assert!(!target.busy);
+        if self.fail {
+            return Err("capture failed".into());
+        }
+        self.captures.push(target.count);
+        Ok(format!("{name}.png"))
+    }
+}
+#[test]
+fn cli_quiet_preserves_show_checks_and_settled_capture() {
+    let mut runner = Runner::<Counter>::new(Counter::default(), 50);
+    let mut host = Host {
+        captures: vec![],
+        fail: false,
+    };
+    let mut output = Vec::new();
+    let mut input = CliInput::new(Cursor::new(
+        "advance\nshow\ncheck /count 1\ncapture scene\nquit\nadvance\n",
+    ));
+    engine_debug_tools::cli::run(&mut runner, &mut input, &mut host, &mut output, true).unwrap();
+    let text = String::from_utf8(output).unwrap();
+    assert!(!text.contains("display"));
+    assert!(text.contains("\"count\":1"));
+    assert!(text.contains("OK line 3"));
+    assert!(text.contains("CAPTURE scene.png"));
+    assert_eq!(host.captures, [1]);
+    assert_eq!(runner.snapshot()["count"], 1);
+}
+#[test]
+fn cli_displays_initial_state_and_contextualizes_capture_errors() {
+    let mut runner = Runner::<Counter>::new(Counter::default(), 50);
+    let mut host = Host {
+        captures: vec![],
+        fail: true,
+    };
+    let mut output = Vec::new();
+    let mut input = CliInput::new(Cursor::new("advance\ncapture broken\n"));
+    let error =
+        engine_debug_tools::cli::run(&mut runner, &mut input, &mut host, &mut output, false)
+            .unwrap_err();
+    assert_eq!(String::from_utf8(output).unwrap(), "display 0\ndisplay 1\n");
+    for part in ["line 2", "capture broken", "count=1", "capture failed"] {
+        assert!(error.contains(part), "{error}");
+    }
+}

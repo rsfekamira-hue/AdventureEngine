@@ -2,7 +2,7 @@
 use engine_core::event_system::{EntryMode, EventInput, EventSystem, JsonHolder};
 use engine_debug_tools::{
     input::{CliInput, Command},
-    replay::{Action, DebugTarget, Outcome, Runner},
+    replay::{Action, DebugTarget, Runner},
 };
 use std::io::{self, BufRead, BufReader};
 
@@ -76,6 +76,7 @@ fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let (mut definition, mut event, mut commands) = (None, None, None);
     let mut plan = false;
+    let mut quiet = false;
     let mut limit = 100_000usize;
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -90,8 +91,9 @@ fn run() -> Result<(), String> {
                     .map_err(|_| "invalid limit")?
             }
             "--plan" => plan = true,
+            "--quiet" => quiet = true,
             "--help" => {
-                println!("engine-debug-cli --definition <Core JSON> --event <ID> [--commands <file>] [--limit 100000]\nengine-debug-cli --plan --commands <file>\nCommands: advance, complete, choose, choose-id, show, check, until, restart, capture, quit");
+                println!("engine-debug-cli --definition <Core JSON> --event <ID> [--commands <file>] [--limit 100000] [--quiet]\nengine-debug-cli --plan --commands <file>\nCommands: advance, complete, choose, choose-id, show, check, until, restart, capture, quit");
                 return Ok(());
             }
             _ => return Err(format!("unknown option: {arg}")),
@@ -127,26 +129,13 @@ fn run() -> Result<(), String> {
     };
     target.start()?;
     let mut runner = Runner::<CoreTarget>::new(target, limit);
-    runner.settle()?;
-    println!("{}", runner.snapshot());
-    while let Some(line) = input
-        .next_command()
-        .map_err(|e| format!("{}: {e}", runner.location()))?
-    {
-        match runner.execute(&line.command).map_err(|e| {
-            format!(
-                "line {} [{}] {}: {e}",
-                line.line,
-                line.source,
-                runner.location()
-            )
-        })? {
-            Outcome::Quit => break,
-            Outcome::Checked => println!("OK line {} [{}]", line.line, line.source),
-            Outcome::Capture(name) => println!("CAPTURE {name} (rendering adapter required)"),
-            Outcome::Updated => println!("{}", runner.snapshot()),
-        }
-    }
+    engine_debug_tools::cli::run(
+        &mut runner,
+        &mut input,
+        &mut CoreHost,
+        &mut io::stdout(),
+        quiet,
+    )?;
     Ok(())
 }
 fn main() -> std::process::ExitCode {
@@ -156,5 +145,15 @@ fn main() -> std::process::ExitCode {
             eprintln!("{e}");
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+struct CoreHost;
+impl engine_debug_tools::cli::CliHost<CoreTarget> for CoreHost {
+    fn display(&mut self, target: &CoreTarget, output: &mut dyn io::Write) -> Result<(), String> {
+        writeln!(output, "{}", target.snapshot()).map_err(|e| e.to_string())
+    }
+    fn capture(&mut self, _: &CoreTarget, name: &str) -> Result<String, String> {
+        Ok(format!("{name} (rendering adapter required)"))
     }
 }
