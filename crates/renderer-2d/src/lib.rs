@@ -293,6 +293,9 @@ impl Renderer2D {
                         ui.set_clip_rect(ui.clip_rect().intersect(item.clip).intersect(rect));
                         egui::ScrollArea::vertical()
                             .id_salt(id)
+                            // 本文を覆うドラッグ領域で、配置元UIのクリックを奪わない。
+                            // スクロールバーとホイールによるスクロールは維持する。
+                            .drag_to_scroll(false)
                             .max_height(rect.height())
                             .stick_to_bottom(stick_to_bottom)
                             .show(ui, |ui| {
