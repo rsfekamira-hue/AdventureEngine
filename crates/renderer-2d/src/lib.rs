@@ -203,6 +203,18 @@ impl Renderer2D {
             .map(|(name, image)| (name.clone(), image.size_vec2()))
             .collect()
     }
+    /// 実行中に取得した画像を登録する。同じ名前の古いテクスチャは解放する。
+    pub fn insert_image(&mut self, name: String, image: egui::ColorImage) {
+        let texture = self
+            .context
+            .load_texture(&name, image, egui::TextureOptions::LINEAR);
+        self.textures.insert(name, texture);
+        self.context.request_repaint();
+    }
+    /// 利用側が必要とする画像だけを保持し、不要になったGPU資源を解放する。
+    pub fn retain_images(&mut self, mut needed: impl FnMut(&str) -> bool) {
+        self.textures.retain(|name, _| needed(name));
+    }
     /// 命令順とクリップ領域を保って一画面分を描く。画像のメッシュ、文字の折返し・スクロール、専用シェーダーの実行をこの層へ集約する。
     pub fn render(&self, ui: &mut egui::Ui, frame: DrawFrame) {
         for item in frame.items {
