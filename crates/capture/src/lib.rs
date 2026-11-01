@@ -3,7 +3,8 @@ use std::path::Path;
 
 pub struct Capture {
     ctx: egui::Context,
-    gpu: egui_wgpu::Renderer,
+    gpu: std::sync::Arc<egui::mutex::RwLock<egui_wgpu::Renderer>>,
+    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     width: u32,
@@ -47,7 +48,8 @@ impl Capture {
                 egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Rgba8Unorm, None, 1, false);
             Ok(Self {
                 ctx,
-                gpu,
+                gpu: std::sync::Arc::new(egui::mutex::RwLock::new(gpu)),
+                adapter,
                 device,
                 queue,
                 width,
@@ -57,6 +59,17 @@ impl Capture {
     }
     pub fn context(&self) -> &egui::Context {
         &self.ctx
+    }
+    /// Allows the caller's normal sprite backend to share this device and queue.
+    pub fn render_state(&self) -> egui_wgpu::RenderState {
+        egui_wgpu::RenderState {
+            adapter: self.adapter.clone(),
+            available_adapters: vec![self.adapter.clone()],
+            device: self.device.clone(),
+            queue: self.queue.clone(),
+            renderer: self.gpu.clone(),
+            target_format: wgpu::TextureFormat::Rgba8Unorm,
+        }
     }
 
     /// Runs two UI passes for initial font/layout updates. The callback must not advance game time.
@@ -93,9 +106,9 @@ impl Capture {
                 |ctx| draw(ctx),
             );
             let jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
+            let mut gpu = self.gpu.write();
             for (id, delta) in &output.textures_delta.set {
-                self.gpu
-                    .update_texture(&self.device, &self.queue, *id, delta);
+                gpu.update_texture(&self.device, &self.queue, *id, delta);
             }
             let screen = egui_wgpu::ScreenDescriptor {
                 size_in_pixels: [self.width, self.height],
@@ -103,8 +116,7 @@ impl Capture {
             };
             let mut encoder = self.device.create_command_encoder(&Default::default());
             let commands =
-                self.gpu
-                    .update_buffers(&self.device, &self.queue, &mut encoder, &jobs, &screen);
+                gpu.update_buffers(&self.device, &self.queue, &mut encoder, &jobs, &screen);
             let view = target.create_view(&Default::default());
             {
                 let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -121,12 +133,12 @@ impl Capture {
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
-                self.gpu.render(&mut pass.forget_lifetime(), &jobs, &screen);
+                gpu.render(&mut pass.forget_lifetime(), &jobs, &screen);
             }
             self.queue
                 .submit(commands.into_iter().chain(Some(encoder.finish())));
             for id in &output.textures_delta.free {
-                self.gpu.free_texture(id);
+                gpu.free_texture(id);
             }
         }
         let stride = (self.width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)

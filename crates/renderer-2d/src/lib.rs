@@ -1,5 +1,7 @@
 //! 汎用2D描画。ゲームの情報・選択肢・進行規則には依存しない。
 use egui::{self, vec2, Align2, Color32, FontId, Rect, Sense, Stroke, StrokeKind};
+#[cfg(feature = "gpu")]
+mod sprites;
 pub mod textures;
 use textures::TextureStore;
 
@@ -235,6 +237,18 @@ impl Renderer2D {
                     tint,
                 } => {
                     if let Some(texture) = textures.get(&image) {
+                        #[cfg(feature = "gpu")]
+                        if let Some(image) = texture.gpu() {
+                            painter.add(sprites::callback(
+                                ui.ctx().screen_rect(),
+                                image,
+                                rect,
+                                uv,
+                                rotation,
+                                tint,
+                            ));
+                            continue;
+                        }
                         let mut mesh = egui::epaint::Mesh::with_texture(texture.id());
                         mesh.add_rect_with_uv(rect, uv, tint);
                         if rotation != 0.0 {

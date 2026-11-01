@@ -11,14 +11,44 @@
 | `engine-core` | Event・Flow・条件・共有パラメーター、文字送り、画像配置、パーティクル |
 | `render-contract` | GPU・ブラウザに依存しないスプライト描画データ |
 | `sprite-renderer` | `render-contract` を受け取るwgpu描画器 |
-| `engine-renderer-2d` | eguiの描画命令・画像・文字・図形の描画。eframeの起動処理は含まない |
+| `engine-renderer-2d` | 描画命令の実行。UIはegui、`gpu` featureの画像は専用wgpuスプライト。eframeの起動処理は含まない |
 | `engine-debug-tools` | コマンド解析、JSON状態検査、上限付き再生、CLI実行ループ、quiet制御・診断、`DebugTarget` / `CliHost` 契約 |
 | `engine-capture` | ウィンドウ不要のegui/wgpu描画、画像読み戻し、PNG保存 |
 | `engine-debug-cli` | Core JSONを直接読み込む単独実行ツール |
 
 `engine-core` はゲーム・描画器・デバッグツールを参照しない。`engine-debug-tools` もゲームやCoreへ依存しない。CLIやゲーム側アダプターが公開入力と読み取りAPIを接続する。
 
-`Renderer2D::insert_image` は実行中の画像登録・同名画像の差し替え、`retain_images` は不要なGPUテクスチャの解放に使う。取得する場面や通信・待機の判断は利用側で管理する。既存の起動時一括登録もそのまま利用でき、既存API・データ形式の移行は不要。
+画像の登録・差し替え・解放は `TextureStore` が `TextureCommand` を受けて行う。
+`Renderer2D` はストアを借用して描画し、画像の所有・取得・寿命管理を行わない。
+取得する場面・通信・待機・キャッシュ予算は利用側と `engine-image-resources` で管理する。
+
+### 画像の直接描画
+
+`engine-renderer-2d` の `gpu` featureを有効にし、環境のegui-wgpu `RenderState` から
+`TextureStore::with_gpu(state)` を作って通常の描画へ渡す。WindowsとWebは同じ実装を使う。
+ヘッドレス撮影では `Capture::render_state()` で同じバックエンドを接続できる。
+
+RGBA8の画像をそのままsRGBテクスチャへ転送し、専用の頂点・フラグメントシェーダーで描画する。
+eguiの画像登録・画像メッシュは使わず、CPUの全画素色変換、Compute変換、変換先テクスチャも不要。
+アップロードと描画は既存の同一Device/Queue上で順序付け、CPUでGPU完了を待たない。
+未表示の先読み画像も転送をsubmitする。GPUの寸法上限超過は登録前にエラーにする。
+
+透明な輪郭の色にじみを防ぐため、シェーダーが4テクセルを線形色空間でアルファ乗算してから補間する。
+画面へ描かれるピクセルだけを処理し、素材全体を毎フレーム走査しない。UIと同じ色合成規則を維持する。
+egui-wgpuの描画コールバックは重ね順・クリップ・既存レンダーパスへの接続だけに用いる。
+このライブラリ境界の必須trait以外に、画像配送のtrait/dyn抽象化は設けない。
+
+`textures/gpu.rs` は画像の割当・転送・所有権による解放、`sprites.rs` はパイプラインと小さな頂点バッファを担当する。
+GPUハンドルはWebのSend/Sync制約に合わせてeguiのコールバック資源スロットへ置くが、
+画像の寿命は `TextureStore` のleaseで管理する。描画器側に画像キャッシュの責務はない。
+
+互換経路の `TextureStore::default()` は従来のegui画像を使用する。
+`TextureStore::apply()` は `Result<(), String>` を返すため、呼出し側は失敗を処理する。
+一括準備する場合も未乗算RGBAのまま `Register` を渡す。`insert(ColorImage)` は既存UI用の互換入口。
+
+GPUテストでは旧描画との画素比較（透明度・補間・UV・回転・クリップ・UI重なり）、
+2048/4096角の直接転送、上限超過・差し替え・解放・ストア破棄を検証する。
+`cargo test -p engine-renderer-2d --features gpu -- --nocapture`。
 
 Coreの診断スナップショットは読み取り専用。内部状態の所有を保つため、強制ジャンプ・復元・パラメーター編集の実装はCore内部の `debug-jump` featureに置く。通常ビルドでは含めない。操作列再生は強制書き換えを使わず通常入力を使う。
 

@@ -298,8 +298,13 @@ version = "0.1.0"
 name = "engine-renderer-2d"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "egui",
+ "egui-wgpu",
+ "engine-capture",
  "engine-image-resources",
+ "image",
+ "wgpu",
 ]
 
 [[package]]
