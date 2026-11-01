@@ -1,0 +1,6 @@
+[package]
+name = "engine-image-resources"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

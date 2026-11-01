@@ -291,10 +291,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-image-resources"
+version = "0.1.0"
+
+[[package]]
 name = "engine-renderer-2d"
 version = "0.1.0"
 dependencies = [
  "egui",
+ "engine-image-resources",
 ]
 
 [[package]]

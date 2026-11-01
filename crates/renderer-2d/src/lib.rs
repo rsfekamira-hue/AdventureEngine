@@ -1,6 +1,7 @@
 //! 汎用2D描画。ゲームの情報・選択肢・進行規則には依存しない。
 use egui::{self, vec2, Align2, Color32, FontId, Rect, Sense, Stroke, StrokeKind};
-use std::collections::BTreeMap;
+pub mod textures;
+use textures::TextureStore;
 
 /// 一つの文字列区間の内容・サイズ・色をまとめる。透明な未表示文字も同じレイアウトへ含め、文字送り中の改行位置を固定する。
 pub struct TextSection {
@@ -159,18 +160,13 @@ impl DrawList {
         self.push(DrawCommand::Filter { rect, tint });
     }
 }
-/// GPU画像とフォントを所有し、汎用描画命令を実行する。ゲーム情報・選択肢・進行条件には依存させない。
+/// 汎用描画命令を実行する。画像の所有・取得・寿命管理は行わない。
 pub struct Renderer2D {
     context: egui::Context,
-    textures: BTreeMap<String, egui::TextureHandle>,
 }
 impl Renderer2D {
-    /// 日本語フォントと読込済み画像を描画ライブラリへ登録する。GPU資源の生成と寿命をRenderer2D内で管理するための入口。
-    pub fn new(
-        ctx: &egui::Context,
-        font: Vec<u8>,
-        images: BTreeMap<String, egui::ColorImage>,
-    ) -> Self {
+    /// 日本語フォントを設定する。画像は描画時に借用する。
+    pub fn new(ctx: &egui::Context, font: Vec<u8>) -> Self {
         let mut fonts = egui::FontDefinitions::default();
         fonts
             .font_data
@@ -183,40 +179,14 @@ impl Renderer2D {
         ctx.set_fonts(fonts);
         Self {
             context: ctx.clone(),
-            textures: images
-                .into_iter()
-                .map(|(name, image)| {
-                    let texture = ctx.load_texture(&name, image, egui::TextureOptions::LINEAR);
-                    (name, texture)
-                })
-                .collect(),
         }
     }
     /// 外部入力で表示が変わった際に次の描画を要求する。ブラウザ側へ描画ライブラリの状態を公開しない。
     pub fn request_repaint(&self) {
         self.context.request_repaint();
     }
-    /// 配置計算に必要な画像名と寸法だけを返す。実際のGPUテクスチャとその寿命は描画器が保持する。
-    pub fn images(&self) -> BTreeMap<String, egui::Vec2> {
-        self.textures
-            .iter()
-            .map(|(name, image)| (name.clone(), image.size_vec2()))
-            .collect()
-    }
-    /// 実行中に取得した画像を登録する。同じ名前の古いテクスチャは解放する。
-    pub fn insert_image(&mut self, name: String, image: egui::ColorImage) {
-        let texture = self
-            .context
-            .load_texture(&name, image, egui::TextureOptions::LINEAR);
-        self.textures.insert(name, texture);
-        self.context.request_repaint();
-    }
-    /// 利用側が必要とする画像だけを保持し、不要になったGPU資源を解放する。
-    pub fn retain_images(&mut self, mut needed: impl FnMut(&str) -> bool) {
-        self.textures.retain(|name, _| needed(name));
-    }
     /// 命令順とクリップ領域を保って一画面分を描く。画像のメッシュ、文字の折返し・スクロール、専用シェーダーの実行をこの層へ集約する。
-    pub fn render(&self, ui: &mut egui::Ui, frame: DrawFrame) {
+    pub fn render(&self, ui: &mut egui::Ui, frame: DrawFrame, textures: &TextureStore) {
         for item in frame.items {
             let painter = ui.painter().with_clip_rect(item.clip);
             match item.command {
@@ -264,7 +234,7 @@ impl Renderer2D {
                     rotation,
                     tint,
                 } => {
-                    if let Some(texture) = self.textures.get(&image) {
+                    if let Some(texture) = textures.get(&image) {
                         let mut mesh = egui::epaint::Mesh::with_texture(texture.id());
                         mesh.add_rect_with_uv(rect, uv, tint);
                         if rotation != 0.0 {

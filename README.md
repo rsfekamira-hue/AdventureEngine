@@ -53,6 +53,27 @@ cargo test --locked -p engine-capture -- --ignored
 
 ## ゲームと同時開発する
 
+### 画像の非同期ロード接続（2026-11-01）
+
+`engine-image-resources` はOS・実行器・GPUに依存しない画像要求と保持方針を提供する。
+`ImageManager::set_targets` に必須画像と順序付きの先読み候補を渡し、`next_request` の
+`ImageRequest` を利用側の具体的なローダーへ配送する。`ImageResult` を `accept` で受け取り、
+`take_commands` の登録・解放メッセージをテクスチャ保管へ渡す。trait・dyn・汎用メッセージバスは使わない。
+未完了要求は1件で、重複・古い結果・不要になった結果を排除する。RGBA容量でキャッシュを制限し、
+現在の必須画像は保護する。予算0は現在場面だけの保持で、先読みを無効にする。
+各管理インスタンスは独立した結果配送先を持つ。別セッションの返信を混在させない。
+
+`engine-renderer-2d::textures::TextureStore` はeguiテクスチャの登録・所有・解放だけを担当する。
+`Renderer2D` は画像を所有せず、描画時にストアを借用する。登録された画像は未表示でも
+eguiのtexture delta経由で転送される。登録済みは描画順序上利用可能という意味で、GPU実行完了の通知ではない。
+
+API移行：`Renderer2D::new(ctx, font, images)` は `new(ctx, font)` へ変更。
+画像の登録・寸法取得・保持は `TextureStore` へ移し、`render(ui, frame, &textures)` を使う。
+イベント形式・進行コアは変更しない。
+
+検証：全workspace・全featureテスト成功。未表示テクスチャの登録deltaと解放、要求の優先順位・
+結果照合・容量上限・失敗の再試行抑止を検査。実GPUの利用先検証はゲーム側の制作記録を参照。
+
 ```text
 作業フォルダ/
 ├─ AdventureEngine/
