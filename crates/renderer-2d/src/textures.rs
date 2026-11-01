@@ -40,6 +40,10 @@ pub struct TextureStore {
     gpu: Option<gpu::Uploader>,
 }
 impl TextureStore {
+    #[cfg(feature = "gpu")]
+    pub(crate) fn gpu_format(&self) -> Option<wgpu::TextureFormat> {
+        self.gpu.as_ref().map(gpu::Uploader::format)
+    }
     /// Select the concrete direct-sprite backend at the platform boundary.
     /// It uses the existing renderer's device/queue; no second GPU or executor.
     #[cfg(feature = "gpu")]

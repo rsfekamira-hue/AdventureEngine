@@ -27,6 +27,7 @@ fn direct_sprites_match_reference_alpha_crop_rotation_and_layer_order() {
     let ctx = capture.context().clone();
     let renderer = Renderer2D {
         context: ctx.clone(),
+        particles: Default::default(),
     };
     let directory = std::path::Path::new("target/test-artifacts/direct-sprites");
     std::fs::create_dir_all(directory).unwrap();

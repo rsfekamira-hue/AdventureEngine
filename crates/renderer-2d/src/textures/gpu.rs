@@ -60,6 +60,9 @@ impl Uploader {
         }
         Ok(())
     }
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.state.target_format
+    }
     pub fn upload(&self, image: DecodedImage) -> ImageLease {
         let size = wgpu::Extent3d {
             width: image.size[0],

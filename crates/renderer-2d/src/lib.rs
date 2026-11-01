@@ -1,6 +1,8 @@
 //! 汎用2D描画。ゲームの情報・選択肢・進行規則には依存しない。
 use egui::{self, vec2, Align2, Color32, FontId, Rect, Sense, Stroke, StrokeKind};
 #[cfg(feature = "gpu")]
+pub mod particles;
+#[cfg(feature = "gpu")]
 mod sprites;
 pub mod textures;
 use textures::TextureStore;
@@ -60,6 +62,9 @@ pub enum DrawCommand {
     },
     /// egui/wgpuの専用シェーダー描画を同じ命令列へ組み込む。
     Shader(egui::PaintCallback),
+    /// Definitions and time only; simulation and instance geometry stay on GPU.
+    #[cfg(feature = "gpu")]
+    Particles(particles::ParticleDraw),
 }
 /// 一つの描画命令に、その時点のクリップ領域を付ける。背景・本文など異なる領域の命令を同じ順序列で扱えるようにする。
 pub struct DrawItem {
@@ -165,10 +170,15 @@ impl DrawList {
 /// 汎用描画命令を実行する。画像の所有・取得・寿命管理は行わない。
 pub struct Renderer2D {
     context: egui::Context,
+    #[cfg(feature = "gpu")]
+    particles: std::cell::RefCell<particles::ParticlePainter>,
 }
 impl Renderer2D {
     /// 日本語フォントを設定する。画像は描画時に借用する。
     pub fn new(ctx: &egui::Context, font: Vec<u8>) -> Self {
+        #[cfg(feature = "gpu")]
+        let particle_font =
+            ab_glyph::FontArc::try_from_vec(font.clone()).expect("renderer requires a valid font");
         let mut fonts = egui::FontDefinitions::default();
         fonts
             .font_data
@@ -181,6 +191,8 @@ impl Renderer2D {
         ctx.set_fonts(fonts);
         Self {
             context: ctx.clone(),
+            #[cfg(feature = "gpu")]
+            particles: std::cell::RefCell::new(particles::ParticlePainter::new(particle_font)),
         }
     }
     /// 外部入力で表示が変わった際に次の描画を要求する。ブラウザ側へ描画ライブラリの状態を公開しない。
@@ -192,6 +204,19 @@ impl Renderer2D {
         for item in frame.items {
             let painter = ui.painter().with_clip_rect(item.clip);
             match item.command {
+                #[cfg(feature = "gpu")]
+                DrawCommand::Particles(draw) => {
+                    let format = textures
+                        .gpu_format()
+                        .expect("GPU particles require TextureStore::with_gpu");
+                    for callback in
+                        self.particles
+                            .borrow_mut()
+                            .callbacks(ui.ctx().screen_rect(), format, draw)
+                    {
+                        painter.add(egui::Shape::Callback(callback));
+                    }
+                }
                 DrawCommand::Rect {
                     rect,
                     radius,
