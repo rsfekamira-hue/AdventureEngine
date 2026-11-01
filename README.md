@@ -50,6 +50,27 @@ GPUテストでは旧描画との画素比較（透明度・補間・UV・回転
 2048/4096角の直接転送、上限超過・差し替え・解放・ストア破棄を検証する。
 `cargo test -p engine-renderer-2d --features gpu -- --nocapture`。
 
+### GPUデジタルパネル
+
+`gpu` featureの `DrawCommand::Digital(DigitalDraw)` は、半透明の面・厚みのある斜め角の枠・
+データ線・回転リング・走査・文字・分割進捗バーを専用wgpuシェーダーで描く。
+eguiは描画順とクリップの接続にのみ使用し、パネルの図形・文字メッシュ生成には使用しない。
+
+`DigitalSurface` は `Panel`・`Scan`・`Reconstruct`。作品固有の契約・名前変更などは利用側が割り当てる。
+`rect`・RGBA `color`・`phase`・任意の `progress`・相対配置の `DigitalText` を指定する。
+装飾の時計は `seconds`、全体の透明度は `color[3]`。軽減設定では `seconds = 0` に固定する。
+待機・完了・フェード時間は利用側の責務で、時計を止めれば装飾も静止する。
+画像は既存の `Sprite` 命令を前後に重ねられる。画像素材の追加は必須ではない。
+
+日本語を含む文字は初回のみ32pxでR8アトラスへ焼き、以後は再利用する。
+頂点バッファは同一フレーム内の各パネルで分離し、容量が足りる間は更新だけを行う。
+アトラスは2048角・同時表示1764種類まで。累積文字数が容量を超える場合はフレーム境界で再構成し、
+現在の全パネルで必要な文字を先に登録して、後続パネルによる上書きを防ぐ。
+フォント変更は `Renderer2D` の作り直しで反映する。通常の `Rect`・`Text` 命令は従来どおり。
+
+GPUテストは複数パネルの色・クリップ・半透明合成・装飾の時間変化と再現性・文字の再利用を確認する。
+`cargo test -p engine-renderer-2d --features gpu digital::tests`。
+
 ### GPUパーティクル
 
 `DrawCommand::Particles(ParticleDraw)` は、検証済みの `Arc<Vec<engine_core::particles::ParticleEmitter>>`、

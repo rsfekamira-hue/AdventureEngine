@@ -28,6 +28,18 @@ fn direct_sprites_match_reference_alpha_crop_rotation_and_layer_order() {
     let renderer = Renderer2D {
         context: ctx.clone(),
         particles: Default::default(),
+        digital: crate::digital::DigitalPainter::new(
+            ab_glyph::FontArc::try_from_vec(
+                egui::FontDefinitions::default()
+                    .font_data
+                    .values()
+                    .next()
+                    .unwrap()
+                    .font
+                    .to_vec(),
+            )
+            .unwrap(),
+        ),
     };
     let directory = std::path::Path::new("target/test-artifacts/direct-sprites");
     std::fs::create_dir_all(directory).unwrap();

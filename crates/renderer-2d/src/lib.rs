@@ -1,6 +1,8 @@
 //! 汎用2D描画。ゲームの情報・選択肢・進行規則には依存しない。
 use egui::{self, vec2, Align2, Color32, FontId, Rect, Sense, Stroke, StrokeKind};
 #[cfg(feature = "gpu")]
+pub mod digital;
+#[cfg(feature = "gpu")]
 pub mod particles;
 #[cfg(feature = "gpu")]
 mod sprites;
@@ -65,6 +67,8 @@ pub enum DrawCommand {
     /// Definitions and time only; simulation and instance geometry stay on GPU.
     #[cfg(feature = "gpu")]
     Particles(particles::ParticleDraw),
+    #[cfg(feature = "gpu")]
+    Digital(digital::DigitalDraw),
 }
 /// 一つの描画命令に、その時点のクリップ領域を付ける。背景・本文など異なる領域の命令を同じ順序列で扱えるようにする。
 pub struct DrawItem {
@@ -172,6 +176,8 @@ pub struct Renderer2D {
     context: egui::Context,
     #[cfg(feature = "gpu")]
     particles: std::cell::RefCell<particles::ParticlePainter>,
+    #[cfg(feature = "gpu")]
+    digital: digital::DigitalPainter,
 }
 impl Renderer2D {
     /// 日本語フォントを設定する。画像は描画時に借用する。
@@ -192,7 +198,11 @@ impl Renderer2D {
         Self {
             context: ctx.clone(),
             #[cfg(feature = "gpu")]
-            particles: std::cell::RefCell::new(particles::ParticlePainter::new(particle_font)),
+            particles: std::cell::RefCell::new(particles::ParticlePainter::new(
+                particle_font.clone(),
+            )),
+            #[cfg(feature = "gpu")]
+            digital: digital::DigitalPainter::new(particle_font),
         }
     }
     /// 外部入力で表示が変わった際に次の描画を要求する。ブラウザ側へ描画ライブラリの状態を公開しない。
@@ -201,9 +211,42 @@ impl Renderer2D {
     }
     /// 命令順とクリップ領域を保って一画面分を描く。画像のメッシュ、文字の折返し・スクロール、専用シェーダーの実行をこの層へ集約する。
     pub fn render(&self, ui: &mut egui::Ui, frame: DrawFrame, textures: &TextureStore) {
+        #[cfg(feature = "gpu")]
+        let mut digital_slot = 0;
+        #[cfg(feature = "gpu")]
+        let digital_characters = std::sync::Arc::new(
+            frame
+                .items
+                .iter()
+                .filter_map(|item| {
+                    if let DrawCommand::Digital(draw) = &item.command {
+                        Some(draw)
+                    } else {
+                        None
+                    }
+                })
+                .flat_map(|draw| draw.text.iter().flat_map(|text| text.text.chars()))
+                .filter(|c| *c != '\n')
+                .collect::<std::collections::HashSet<_>>(),
+        );
         for item in frame.items {
             let painter = ui.painter().with_clip_rect(item.clip);
             match item.command {
+                #[cfg(feature = "gpu")]
+                DrawCommand::Digital(draw) => {
+                    painter.add(egui::Shape::Callback(
+                        self.digital.callback(
+                            ui.ctx().screen_rect(),
+                            textures
+                                .gpu_format()
+                                .expect("digital overlays require GPU textures"),
+                            digital_slot,
+                            digital_characters.clone(),
+                            draw,
+                        ),
+                    ));
+                    digital_slot += 1;
+                }
                 #[cfg(feature = "gpu")]
                 DrawCommand::Particles(draw) => {
                     let format = textures
