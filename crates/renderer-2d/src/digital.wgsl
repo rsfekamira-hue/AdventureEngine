@@ -21,6 +21,29 @@ fn shade(v: VertexOut) -> vec4<f32> {
     var color = v.color;
     if v.settings.x < 0.5 {
         color.a *= textureSample(atlas, atlas_sampler, v.uv).r;
+    } else if v.settings.x > 5.5 {
+        let size = max(v.settings.zw, vec2<f32>(1.));
+        let p = v.uv*size;
+        let phase = clamp(v.settings.y,0.,1.);
+        let press = smoothstep(0.20,0.38,phase)*(1.-smoothstep(0.48,0.64,phase));
+        let sealed = smoothstep(0.56,0.86,phase);
+        let d = panel_distance(p-vec2<f32>(4.),size-vec2<f32>(8.),12.);
+        let mask = 1.-smoothstep(-0.5,0.5,d);
+        let edge = line(d+1.5,0.8)*mask;
+        let inner = line(d+5.,0.4)*mask;
+        let pulse = exp(-pow((phase-0.56)/0.085,2.));
+        let distance = length((v.uv-vec2<f32>(0.5))*vec2<f32>(1.,size.y/size.x));
+        let ripple = line((distance-max(0.,phase-0.45)*2.)*size.x,2.)
+            *smoothstep(0.44,0.51,phase)*(1.-smoothstep(0.70,0.85,phase))*mask;
+        let micro = line(fract(p.x/8.)*8.,0.25)*line(fract(p.y/8.)*8.,0.25);
+        let energy = (edge*(0.65+press*0.35)+inner*0.25+ripple*0.7+micro*0.10)*mask;
+        let base = mix(vec3<f32>(0.08,0.004,0.035),v.color.rgb,0.10+sealed*0.22+press*0.16+pulse*0.25);
+        let rgb = mix(base,v.color.rgb,clamp(energy,0.,1.))
+            +vec3<f32>(1.,0.75,0.85)*pulse*edge*0.45;
+        // Top reflection becomes a dark inset while the agreement plate is depressed.
+        let bevel = line(p.y-7.,0.6)*mask*(1.-press);
+        color = vec4<f32>(rgb+vec3<f32>(0.20,0.07,0.12)*bevel,
+            v.color.a*clamp(mask*(0.78+press*0.12)+energy*0.15,0.,0.98));
     } else if v.settings.x < 1.5 || v.settings.x > 2.5 {
         let uv = v.uv;
         let size = max(v.settings.zw, vec2<f32>(1.));
@@ -38,6 +61,10 @@ fn shade(v: VertexOut) -> vec4<f32> {
         // A translucent, subtly lit face with dark extruded edges below it.
         var rgb = vec3<f32>(0.018,0.045,0.08)*(0.8+0.4*(1.-uv.y));
         var alpha = (0.50+0.05*uv.y)*mask+back*0.30;
+        if v.settings.x > 4.5 {
+            rgb = vec3<f32>(0.065,0.004,0.028)*(1.+uv.y*0.35);
+            alpha = 0.72*mask+back*0.38;
+        }
         var ink = edge*light+rim+glow;
         let grid_uv = (p+vec2<f32>(time*4.,-time*7.))/32.;
         let grid = max(line(fract(grid_uv.x)*32.,0.3),line(fract(grid_uv.y)*32.,0.3));
@@ -69,12 +96,30 @@ fn shade(v: VertexOut) -> vec4<f32> {
         }
         let scan = exp(-abs(uv.y-fract(time*0.10))*size.y*0.12)*0.09;
         ink += scan*mask;
-        if v.settings.x > 2.5 {
+        if v.settings.x > 2.5 && v.settings.x < 4.5 {
             let row = floor(uv.y*18.);
             let shift = select(0.,sin(v.settings.y*7.+row*0.7)*0.06,v.settings.x>3.5);
             let cell = fract(vec2<f32>(uv.x+shift,uv.y)*vec2<f32>(8.,18.));
             let code = fract(sin(floor((uv.x+shift)*8.)*13.+row*17.+floor(v.settings.y*42.))*43758.5453);
             ink += select(0.,0.22,cell.x<0.65 && cell.y<0.25 && code>0.25)*mask;
+        }
+        if v.settings.x > 4.5 {
+            let phase = clamp(v.settings.y,0.,1.);
+            let sealed = smoothstep(0.56,0.86,phase);
+            let q = (p-vec2<f32>(size.x*0.83,size.y*0.47))/size.y;
+            let diamond = abs(q.x)+abs(q.y);
+            let closing = mix(0.32,0.17,sealed);
+            let lock = line((diamond-closing)*size.y,1.1);
+            let core = line((diamond-0.10)*size.y,0.6);
+            let lattice = line((abs(q.x)-abs(q.y))*size.y,0.5)*select(0.,0.35,diamond<closing);
+            let teeth = line((diamond-closing*1.26)*size.y,2.)*select(0.,0.7,fract(atan2(q.y,q.x)*6.)>0.45);
+            let pulse = exp(-pow((phase-0.56)/0.085,2.));
+            ink += (lock*0.8+core*(0.15+sealed*0.65)+lattice+teeth)*mask;
+            // Narrow circuit paths converge toward the seal; a single pulse marks acceptance.
+            let track = line(fract(p.x/43.+uv.y*2.)*43.-21.,0.5);
+            ink += track*smoothstep(0.4,0.95,uv.x)*0.12*mask;
+            rgb += vec3<f32>(0.12,0.008,0.04)*pulse*mask;
+            alpha += pulse*0.08*mask;
         }
         rgb = mix(rgb,v.color.rgb,clamp(ink,0.,1.));
         // Thin near-white highlights and a dim lower edge give the frame thickness.

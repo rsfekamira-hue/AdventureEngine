@@ -16,6 +16,10 @@ pub enum DigitalSurface {
     Panel,
     Scan,
     Reconstruct,
+    /// Angular frame with an inward-closing geometric seal, driven by `phase`.
+    Confirmation,
+    /// A one-shot recessed press and outward light pulse, driven by `phase`.
+    Press,
 }
 /// A reusable translucent panel, optional progress track, and arbitrary text.
 /// Images can be composed before/after this command through `DrawCommand::Sprite`.
@@ -327,7 +331,20 @@ impl egui_wgpu::CallbackTrait for Callback {
             }
         }
         let mut vertices = Vec::new();
-        let rect = self.draw.rect;
+        let rect = if matches!(self.draw.surface, DigitalSurface::Press) {
+            let t = self.draw.phase.clamp(0., 1.);
+            let smooth = |a: f32, b: f32| {
+                let x = ((t - a) / (b - a)).clamp(0., 1.);
+                x * x * (3. - 2. * x)
+            };
+            let press = smooth(0.20, 0.38) * (1. - smooth(0.48, 0.64));
+            self.draw
+                .rect
+                .shrink2(self.draw.rect.size() * 0.018 * press)
+                .translate(vec2(0., self.draw.rect.height() * 0.045 * press))
+        } else {
+            self.draw.rect
+        };
         let uv = Rect::from_min_max(pos2(0., 0.), pos2(1., 1.));
         self.quad(
             &mut vertices,
@@ -339,6 +356,8 @@ impl egui_wgpu::CallbackTrait for Callback {
                     DigitalSurface::Panel => 1.,
                     DigitalSurface::Scan => 3.,
                     DigitalSurface::Reconstruct => 4.,
+                    DigitalSurface::Confirmation => 5.,
+                    DigitalSurface::Press => 6.,
                 },
                 self.draw.phase,
                 rect.width(),
@@ -383,7 +402,14 @@ impl egui_wgpu::CallbackTrait for Callback {
                         vec2(size * 1.5, size * 1.5),
                     ),
                     uv,
-                    [0.88, 0.98, 1., self.draw.color[3]],
+                    if matches!(
+                        self.draw.surface,
+                        DigitalSurface::Confirmation | DigitalSurface::Press
+                    ) {
+                        [1., 0.87, 0.92, self.draw.color[3]]
+                    } else {
+                        [0.88, 0.98, 1., self.draw.color[3]]
+                    },
                     [0.; 4],
                 );
                 cursor.x += advance * size / 32.;

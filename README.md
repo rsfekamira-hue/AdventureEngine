@@ -56,7 +56,10 @@ GPUテストでは旧描画との画素比較（透明度・補間・UV・回転
 データ線・回転リング・走査・文字・分割進捗バーを専用wgpuシェーダーで描く。
 eguiは描画順とクリップの接続にのみ使用し、パネルの図形・文字メッシュ生成には使用しない。
 
-`DigitalSurface` は `Panel`・`Scan`・`Reconstruct`。作品固有の契約・名前変更などは利用側が割り当てる。
+`DigitalSurface` は `Panel`・`Scan`・`Reconstruct`・`Confirmation`・`Press`。作品固有の意味は利用側が割り当てる。
+`Confirmation` は角形の封印が内側へ閉じる面、`Press` は押し込み・波紋・確定状態を持つ面。
+どちらも `phase` で一度だけ再生し、1で確定状態を保持する。入力や合意の判定は行わない。
+軽減表示では `phase = 1`・`seconds = 0` を渡す。色はRGBA指定を共有し、文字は面と一緒に押し込む。
 `rect`・RGBA `color`・`phase`・任意の `progress`・相対配置の `DigitalText` を指定する。
 装飾の時計は `seconds`、全体の透明度は `color[3]`。軽減設定では `seconds = 0` に固定する。
 待機・完了・フェード時間は利用側の責務で、時計を止めれば装飾も静止する。
