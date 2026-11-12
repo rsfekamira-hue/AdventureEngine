@@ -95,11 +95,12 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
     struct Candidate {
         DebugState state;
         std::vector<Id> route;
+        std::vector<JumpIssue> issues;
     };
     using Key = std::tuple<Status, std::optional<Id>, Parameters, std::map<Id, Progress>, std::vector<ReturnPoint>>;
     std::set<Key> seen;
     std::multimap<size_t, Candidate> queue;
-    const auto enqueue = [&](const std::vector<Id>& route) {
+    const auto enqueue = [&](const std::vector<Id>& route, const std::vector<JumpIssue>& issues) {
         if (queue.size() >= limit) {
             return;
         }
@@ -110,45 +111,80 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
         if (seen.emplace(info_.status, current_, parameters_, std::move(normalized), return_points_).second) {
             const auto remaining = distance.find({info_.event, info_.node});
             const auto rank = remaining == distance.end() ? 10000 : remaining->second;
-            queue.emplace(route.size() + rank, Candidate{debug_state(), route});
+            queue.emplace(route.size() + rank, Candidate{debug_state(), route, issues});
         }
     };
     auto original = debug_state();
     JumpReport report;
+    std::tuple<bool, size_t, size_t> best{true, 10001, 0};
+    const auto remember = [&](const std::vector<Id>& route, const std::vector<JumpIssue>& issues) {
+        for (const auto& issue : issues) {
+            const auto remaining = distance.find({issue.edge.event, issue.edge.from});
+            const auto rank = std::tuple{issue.target != event,
+                remaining == distance.end() ? size_t{10000} : remaining->second, route.size()};
+            if (rank < best) {
+                best = rank;
+                report.route = route;
+                report.issues = issues;
+                report.stopped = issue.edge.event + L"/" + issue.edge.from;
+            }
+        }
+    };
     try {
-        enqueue({});
+        enqueue({}, {});
         while (!queue.empty() && report.explored < limit) {
             auto entry = queue.extract(queue.begin());
-            auto [state, route] = std::move(entry.mapped());
+            auto [state, route, issues] = std::move(entry.mapped());
             restore_debug_state(std::move(state));
             ++report.explored;
             if (info_.status == Status::active && info_.event == event && (!node || info_.node == *node)) {
                 report.route = std::move(route);
+                report.issues = std::move(issues);
+                report.stopped = info_.event + L"/" + info_.node;
                 info_.stamp = original.info.stamp;
                 refresh();
                 saved_debug_ = std::move(original);
                 return report;
             }
+            jump_issues_ = &issues;
             for (size_t pass = 0; info_.presentation_request && pass < limit; ++pass) {
                 presentation_ready(*info_.presentation_request);
             }
+            jump_issues_ = nullptr;
             const auto ready = debug_state();
+            remember(route, issues);
             if (info_.kind == NodeKind::choice) {
+                if (ready.info.choices.empty() && issues.size() < 64) {
+                    issues.push_back({.kind = JumpIssueKind::no_choices, .edge = {info_.event, info_.node, {}}});
+                    remember(route, issues);
+                }
                 for (const auto& choice : ready.info.choices) {
                     restore_debug_state(ready);
+                    auto branch = issues;
+                    jump_issues_ = &branch;
                     if (choose(ready.info.stamp, choice.id)) {
                         route.push_back(L"choose-id " + choice.id);
-                        enqueue(route);
+                        remember(route, branch);
+                        enqueue(route, branch);
                         route.pop_back();
                     }
+                    jump_issues_ = nullptr;
                 }
-            } else if (advance(ready.info.stamp)) {
-                route.push_back(L"advance");
-                enqueue(route);
+            } else {
+                jump_issues_ = &issues;
+                if (advance(ready.info.stamp)) {
+                    route.push_back(L"advance");
+                    remember(route, issues);
+                    enqueue(route, issues);
+                }
+                jump_issues_ = nullptr;
             }
         }
         report.forced = true;
         report.limited = !queue.empty();
+        if (report.stopped.empty()) {
+            report.stopped = info_.event + L"/" + info_.node;
+        }
         restore_debug_state(original);
         if (node || !start(event) || info_.event != event || info_.status != Status::active) {
             restore_debug_state(original);
@@ -160,6 +196,7 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
         saved_debug_ = std::move(original);
         return report;
     } catch (...) {
+        jump_issues_ = nullptr;
         restore_debug_state(std::move(original));
         throw;
     }

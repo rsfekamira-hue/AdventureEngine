@@ -123,11 +123,30 @@ struct EventInfo {
 };
 
 #ifdef ADVENTURE_DEBUG_JUMP
+enum class JumpIssueKind { parameter, external, resume, priority, no_choices };
+
+struct JumpIssue {
+    JumpIssueKind kind;
+    Edge edge;
+    bool after_update = false;
+    Id set;
+    Id name;
+    Comparison comparison = Comparison::eq;
+    std::optional<Value> expected;
+    std::optional<Value> actual;
+    std::optional<int32_t> priority;
+    std::optional<int32_t> selected_priority;
+    Id target;
+    bool operator==(const JumpIssue&) const = default;
+};
+
 struct JumpReport {
     bool forced = false;
     bool limited = false;
     size_t explored = 0;
     std::vector<Id> route;
+    std::vector<JumpIssue> issues;
+    Id stopped;
 };
 #endif
 
@@ -190,6 +209,7 @@ private:
         EventInfo info;
     };
     std::optional<DebugState> saved_debug_;
+    std::vector<JumpIssue>* jump_issues_ = nullptr;
     DebugState debug_state() const;
     void restore_debug_state(DebugState state);
 #endif

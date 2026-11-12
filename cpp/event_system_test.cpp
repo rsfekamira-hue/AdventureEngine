@@ -1,5 +1,6 @@
 #include "event_system.h"
 
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 
@@ -81,6 +82,9 @@ int main() {
         const auto route = system.debug_jump(L"side", Id{L"line"});
         check(route && !route->forced && route->route == std::vector<Id>{L"choose-id visit"},
             "debug jump did not follow the real choice");
+        check(route->issues.size() == 1 && route->issues[0].kind == JumpIssueKind::priority &&
+            route->issues[0].priority == 5 && route->issues[0].selected_priority == 10 &&
+            route->issues[0].actual == Value{Id{L"side"}}, "priority diagnosis disagreed with the selected transfer");
         check(system.info().event == L"side" && system.visits(L"side") == 1, "debug route was not adopted");
         check(std::get<int32_t>(system.parameters().at(L"shared").at(L"count")) == 1,
             "debug route did not apply the parameter update");
@@ -95,6 +99,17 @@ int main() {
             "bounded search did not distinguish a forced jump");
         check(std::get<int32_t>(system.parameters().at(L"shared").at(L"count")) == 2,
             "forced jump applied updates from unselected paths");
+        check(system.debug_restore(), "cannot restore before the condition check");
+        const auto blocked = system.debug_jump(L"side", Id{L"line"});
+        check(blocked && blocked->forced && blocked->stopped == L"main/menu", "failed route did not report its blocked edge");
+        check(std::ranges::any_of(blocked->issues, [](const auto& issue) {
+            return issue.kind == JumpIssueKind::parameter && !issue.after_update && issue.name == L"count" &&
+                issue.expected == Value{int32_t{0}} && issue.actual == Value{int32_t{2}};
+        }), "failed parameter update did not report its starting value");
+        check(std::ranges::any_of(blocked->issues, [](const auto& issue) {
+            return issue.kind == JumpIssueKind::parameter && issue.after_update && issue.target == L"side" &&
+                issue.name == L"seen" && issue.expected == Value{true} && issue.actual == Value{false};
+        }), "failed transfer did not report its post-update condition");
 #endif
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

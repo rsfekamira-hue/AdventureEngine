@@ -230,31 +230,97 @@ void EventSystem::transition(const Id& event, Id to) {
     std::vector<Choice> added;
     const EventTransfer* transfer = nullptr;
     if (rules != rules_.end()) {
+#ifdef ADVENTURE_DEBUG_JUMP
+        const auto record = [&](JumpIssue issue) {
+            if (jump_issues_ && jump_issues_->size() < 64 &&
+                std::ranges::find(*jump_issues_, issue) == jump_issues_->end()) {
+                jump_issues_->push_back(std::move(issue));
+            }
+        };
+        const auto diagnose = [&](const Condition& condition, bool after, const Id& target) {
+            if (!jump_issues_ || (condition.choice && (!choice || *choice != *condition.choice))) {
+                return;
+            }
+            for (const auto& check : condition.parameters) {
+                const auto& actual = parameters_.at(check.set).at(check.parameter);
+                if (!matches_value(actual, check.comparison, check.value)) {
+                    record({.kind = JumpIssueKind::parameter, .edge = rules->first, .after_update = after,
+                        .set = check.set, .name = check.parameter, .comparison = check.comparison,
+                        .expected = check.value, .actual = actual, .target = target});
+                }
+            }
+            for (const auto& [name, expected] : condition.external) {
+                const auto fact = facts_.find(name);
+                if (fact == facts_.end() || fact->second != expected) {
+                    record({.kind = JumpIssueKind::external, .edge = rules->first, .after_update = after,
+                        .name = name, .expected = Value{expected},
+                        .actual = fact == facts_.end() ? std::nullopt : std::optional<Value>{fact->second},
+                        .target = target});
+                }
+            }
+        };
+        std::vector<const EventTransfer*> eligible;
+#endif
         std::vector<const ParameterOperation*> operations;
         // Test every operation against the same starting state.
         for (const auto* rule : rules->second) {
-            if (rule->parameter && matches(rule->parameter->condition, choice)) {
-                operations.push_back(&rule->parameter->action);
+            if (rule->parameter) {
+#ifdef ADVENTURE_DEBUG_JUMP
+                diagnose(rule->parameter->condition, false, {});
+#endif
+                if (matches(rule->parameter->condition, choice)) {
+                    operations.push_back(&rule->parameter->action);
+                }
             }
         }
         for (const auto* operation : operations) {
             apply(parameters_, *operation);
         }
         for (const auto* rule : rules->second) {
-            if (!rule->effect || !matches(rule->effect->condition, choice)) {
+            if (!rule->effect) {
+                continue;
+            }
+#ifdef ADVENTURE_DEBUG_JUMP
+            const auto* destination = std::get_if<EventTransfer>(&rule->effect->action);
+            diagnose(rule->effect->condition, true, destination ? destination->event : Id{});
+#endif
+            if (!matches(rule->effect->condition, choice)) {
                 continue;
             }
             if (const auto* addition = std::get_if<Choice>(&rule->effect->action)) {
                 added.push_back(*addition);
             } else {
                 const auto& candidate = std::get<EventTransfer>(rule->effect->action);
-                if (can_enter(candidate.event, candidate.mode) &&
-                    (!transfer || candidate.priority > transfer->priority ||
-                        (candidate.priority == transfer->priority && candidate.event < transfer->event))) {
+                if (!can_enter(candidate.event, candidate.mode)) {
+#ifdef ADVENTURE_DEBUG_JUMP
+                    if (jump_issues_) {
+                        record({.kind = JumpIssueKind::resume, .edge = rules->first,
+                            .actual = Value{progress_.at(candidate.event).finished ? Id{L"finished"} : Id{L"not-started"}},
+                            .target = candidate.event});
+                    }
+#endif
+                    continue;
+                }
+#ifdef ADVENTURE_DEBUG_JUMP
+                if (jump_issues_) {
+                    eligible.push_back(&candidate);
+                }
+#endif
+                if (!transfer || candidate.priority > transfer->priority ||
+                    (candidate.priority == transfer->priority && candidate.event < transfer->event)) {
                     transfer = &candidate;
                 }
             }
         }
+#ifdef ADVENTURE_DEBUG_JUMP
+        for (const auto* candidate : eligible) {
+            if (candidate != transfer) {
+                record({.kind = JumpIssueKind::priority, .edge = rules->first, .expected = Value{candidate->event},
+                    .actual = Value{transfer->event}, .priority = candidate->priority,
+                    .selected_priority = transfer->priority, .target = candidate->event});
+            }
+        }
+#endif
     }
     if (flow(event).nodes.at(to).kind == NodeKind::choice) {
         progress.choices = std::move(added);
