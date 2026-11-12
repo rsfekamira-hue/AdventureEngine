@@ -174,6 +174,9 @@ bool EventSystem::matches(const Condition& condition, const Id* choice) const {
 }
 
 void EventSystem::reset() {
+#ifdef ADVENTURE_DEBUG_JUMP
+    saved_debug_.reset();
+#endif
     parameters_ = definition_.parameters;
     for (auto& [event, progress] : progress_) {
         progress = {};

@@ -29,6 +29,7 @@ using NextNode = std::variant<std::monostate, Id, SelectedDestination>;
 struct Choice {
     Id id;
     Id destination;
+    auto operator<=>(const Choice&) const = default;
 };
 
 struct Node {
@@ -121,6 +122,15 @@ struct EventInfo {
     std::optional<uint64_t> presentation_request;
 };
 
+#ifdef ADVENTURE_DEBUG_JUMP
+struct JumpReport {
+    bool forced = false;
+    bool limited = false;
+    size_t explored = 0;
+    std::vector<Id> route;
+};
+#endif
+
 class EventSystem {
 public:
     explicit EventSystem(Definition definition);
@@ -137,6 +147,11 @@ public:
     bool advance(Stamp stamp);
     bool choose(Stamp stamp, const Id& choice);
     bool presentation_ready(uint64_t request);
+#ifdef ADVENTURE_DEBUG_JUMP
+    std::optional<JumpReport> debug_jump(const Id& event, const std::optional<Id>& node, size_t limit = 1024);
+    bool debug_restore();
+    bool debug_parameter(const Id& set, const Id& name, Value value);
+#endif
 
 private:
     struct Progress {
@@ -145,12 +160,14 @@ private:
         std::vector<Choice> choices;
         int32_t visits = 0;
         bool finished = false;
+        auto operator<=>(const Progress&) const = default;
     };
     struct ReturnPoint {
         Id event;
         Id node;
         std::optional<Choice> selected;
         std::vector<Choice> choices;
+        auto operator<=>(const ReturnPoint&) const = default;
     };
 
     Definition definition_;
@@ -162,6 +179,20 @@ private:
     std::vector<ReturnPoint> return_points_;
     std::optional<std::pair<Id, Id>> last_visible_;
     EventInfo info_;
+
+#ifdef ADVENTURE_DEBUG_JUMP
+    struct DebugState {
+        Parameters parameters;
+        std::map<Id, Progress> progress;
+        std::optional<Id> current;
+        std::vector<ReturnPoint> return_points;
+        std::optional<std::pair<Id, Id>> last_visible;
+        EventInfo info;
+    };
+    std::optional<DebugState> saved_debug_;
+    DebugState debug_state() const;
+    void restore_debug_state(DebugState state);
+#endif
 
     void validate() const;
     bool can_enter(const Id& event, EntryMode mode) const;

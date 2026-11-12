@@ -75,6 +75,27 @@ int main() {
         system.reset();
         check(system.info().status == Status::idle && system.visits(L"side") == 0, "reset did not clear progress");
         check(!std::get<bool>(system.parameters().at(L"shared").at(L"seen")), "reset did not restore initial parameters");
+#ifdef ADVENTURE_DEBUG_JUMP
+        check(system.start(L"main"), "debug test could not start");
+        const auto before_jump = system.info().stamp;
+        const auto route = system.debug_jump(L"side", Id{L"line"});
+        check(route && !route->forced && route->route == std::vector<Id>{L"choose-id visit"},
+            "debug jump did not follow the real choice");
+        check(system.info().event == L"side" && system.visits(L"side") == 1, "debug route was not adopted");
+        check(std::get<int32_t>(system.parameters().at(L"shared").at(L"count")) == 1,
+            "debug route did not apply the parameter update");
+        check(system.debug_restore() && system.info().node == L"menu" && system.info().stamp != before_jump &&
+            system.visits(L"side") == 0, "debug restore lost the original state");
+        check(!system.debug_jump(L"main", Id{L"entry"}) && system.info().node == L"menu",
+            "generated node was accepted as a debug target");
+        check(!system.debug_parameter(L"shared", L"count", false) &&
+            system.debug_parameter(L"shared", L"count", int32_t{2}), "debug parameter type was not enforced");
+        const auto forced = system.debug_jump(L"alternative", Id{L"line"}, 1);
+        check(forced && forced->forced && forced->limited && system.info().event == L"alternative",
+            "bounded search did not distinguish a forced jump");
+        check(std::get<int32_t>(system.parameters().at(L"shared").at(L"count")) == 2,
+            "forced jump applied updates from unselected paths");
+#endif
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
