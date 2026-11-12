@@ -148,6 +148,15 @@ struct JumpReport {
     std::vector<JumpIssue> issues;
     Id stopped;
 };
+
+struct DebugWatch {
+    Edge edge;
+    Id action;
+    Id target;
+    std::optional<Id> choice;
+    bool matches_node;
+    bool conditions_met;
+};
 #endif
 
 class EventSystem {
@@ -170,6 +179,8 @@ public:
     std::optional<JumpReport> debug_jump(const Id& event, const std::optional<Id>& node, size_t limit = 1024);
     bool debug_restore();
     bool debug_parameter(const Id& set, const Id& name, Value value);
+    std::vector<DebugWatch> debug_watches(const Id& event, bool current_only) const;
+    std::optional<Id> debug_next() const;
 #endif
 
 private:

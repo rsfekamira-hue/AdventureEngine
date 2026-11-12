@@ -79,6 +79,9 @@ int main() {
 #ifdef ADVENTURE_DEBUG_JUMP
         check(system.start(L"main"), "debug test could not start");
         const auto before_jump = system.info().stamp;
+        const auto watches = system.debug_watches(L"main", true);
+        check(watches.size() == 4 && watches[0].matches_node && watches[0].conditions_met &&
+            !watches[2].conditions_met && system.debug_next() == Id{L"post"}, "live watch state is incorrect");
         const auto route = system.debug_jump(L"side", Id{L"line"});
         check(route && !route->forced && route->route == std::vector<Id>{L"choose-id visit"},
             "debug jump did not follow the real choice");

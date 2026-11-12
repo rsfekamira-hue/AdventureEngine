@@ -182,6 +182,9 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
         }
         report.forced = true;
         report.limited = !queue.empty();
+        std::stable_partition(report.issues.begin(), report.issues.end(), [&](const JumpIssue& issue) {
+            return issue.target == event;
+        });
         if (report.stopped.empty()) {
             report.stopped = info_.event + L"/" + info_.node;
         }
@@ -227,6 +230,42 @@ bool EventSystem::debug_parameter(const Id& set, const Id& name, Value value) {
     }
     parameter->second = std::move(value);
     return true;
+}
+
+std::optional<Id> EventSystem::debug_next() const {
+    return current_ && info_.status == Status::active ? next(*current_) : std::nullopt;
+}
+
+std::vector<DebugWatch> EventSystem::debug_watches(const Id& event, bool current_only) const {
+    std::vector<DebugWatch> result;
+    const auto current = current_ && info_.status == Status::active;
+    for (const auto& [edge, rules] : rules_) {
+        const bool at_node = current && edge.event == *current_ && edge.from == info_.node;
+        if (edge.event != event || (current_only && !at_node)) {
+            continue;
+        }
+        const auto append = [&](const Condition& condition, Id action, Id target) {
+            // Evaluate a choice-gated rule for its declared choice before the player selects it.
+            const auto* choice = condition.choice ? &*condition.choice : nullptr;
+            result.push_back({edge, std::move(action), std::move(target), condition.choice, at_node,
+                matches(condition, choice)});
+        };
+        for (const auto* rule : rules) {
+            if (rule->parameter) {
+                const auto& operation = rule->parameter->action;
+                append(rule->parameter->condition, operation.update == Update::set ? L"set" : L"add",
+                    operation.set + L"." + operation.parameter);
+            }
+            if (rule->effect) {
+                if (const auto* transfer = std::get_if<EventTransfer>(&rule->effect->action)) {
+                    append(rule->effect->condition, transfer->call ? L"call" : L"switch", transfer->event);
+                } else {
+                    append(rule->effect->condition, L"add-choice", std::get<Choice>(rule->effect->action).id);
+                }
+            }
+        }
+    }
+    return result;
 }
 
 }
