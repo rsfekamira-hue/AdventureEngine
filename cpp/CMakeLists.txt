@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.20)
+project(AdventureEngineCpp LANGUAGES CXX)
+
+add_library(adventure-event-system STATIC event_system.cpp)
+target_include_directories(adventure-event-system PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_features(adventure-event-system PUBLIC cxx_std_20)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    include(CTest)
+    if(BUILD_TESTING)
+        add_executable(adventure-event-system-test event_system_test.cpp)
+        target_link_libraries(adventure-event-system-test PRIVATE adventure-event-system)
+        add_test(NAME adventure-event-system COMMAND adventure-event-system-test)
+    endif()
+endif()

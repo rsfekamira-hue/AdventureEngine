@@ -2,6 +2,8 @@
 
 作品データを持たないRust製のイベント・描画・デバッグ部品。ゲームとは独立したGitリポジトリとして管理する。
 
+C++版のイベント実行コアは `cpp/` にある。C++20標準ライブラリだけで、Flow、条件、パラメーター更新、イベント間の呼び出しと復帰、演出完了の受付を処理する。ファイル形式の読み込みと表示は利用側が担当する。単独で検証する場合は `cmake -S cpp -B build-cpp` で構成し、ビルドして CTest を実行する。
+
 正本：[rsfekamira-hue/AdventureEngine](https://github.com/rsfekamira-hue/AdventureEngine)。共通コアロジック・描画・デバッグの変更と履歴はこのリポジトリへ保存する。
 
 ## 構成と依存
