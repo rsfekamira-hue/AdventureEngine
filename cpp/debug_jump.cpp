@@ -20,8 +20,30 @@ void EventSystem::restore_debug_state(DebugState state) {
     info_ = std::move(state.info);
 }
 
-std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::optional<Id>& node, size_t limit) {
-    if (limit == 0 || !can_enter(event, EntryMode::start)) {
+std::unique_ptr<EventSystem> EventSystem::debug_search_copy() const {
+    auto search = std::make_unique<EventSystem>(definition_);
+    search->facts_ = facts_;
+    search->restore_debug_state(debug_state());
+    search->search_source_ = this;
+    search->search_stamp_ = info_.stamp;
+    return search;
+}
+
+bool EventSystem::debug_adopt_search(const EventSystem& search) {
+    if (search.search_source_ != this || search.search_stamp_ != info_.stamp || !search.saved_debug_ ||
+        parameters_ != search.saved_debug_->parameters || facts_ != search.facts_ ||
+        info_.presentation_request != search.saved_debug_->info.presentation_request) {
+        return false;
+    }
+    auto before = debug_state();
+    restore_debug_state(search.debug_state());
+    saved_debug_ = std::move(before);
+    return true;
+}
+
+std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::optional<Id>& node, size_t limit,
+    std::stop_token stop) {
+    if (stop.stop_requested() || limit == 0 || !can_enter(event, EntryMode::start)) {
         return std::nullopt;
     }
     const auto& target = flow(event);
@@ -79,6 +101,9 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
         }
     }
     while (!backwards.empty()) {
+        if (stop.stop_requested()) {
+            return std::nullopt;
+        }
         const auto position = std::move(backwards.front());
         backwards.pop_front();
         const auto edges = incoming.find(position);
@@ -132,7 +157,7 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
     };
     try {
         enqueue({}, {});
-        while (!queue.empty() && report.explored < limit) {
+        while (!queue.empty() && report.explored < limit && !stop.stop_requested()) {
             auto entry = queue.extract(queue.begin());
             auto [state, route, issues] = std::move(entry.mapped());
             restore_debug_state(std::move(state));
@@ -159,6 +184,9 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
                     remember(route, issues);
                 }
                 for (const auto& choice : ready.info.choices) {
+                    if (stop.stop_requested()) {
+                        break;
+                    }
                     restore_debug_state(ready);
                     auto branch = issues;
                     jump_issues_ = &branch;
@@ -179,6 +207,10 @@ std::optional<JumpReport> EventSystem::debug_jump(const Id& event, const std::op
                 }
                 jump_issues_ = nullptr;
             }
+        }
+        if (stop.stop_requested()) {
+            restore_debug_state(std::move(original));
+            return std::nullopt;
         }
         report.forced = true;
         report.limited = !queue.empty();

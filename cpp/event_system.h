@@ -3,9 +3,11 @@
 #include <compare>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
+#include <stop_token>
 #include <variant>
 #include <vector>
 
@@ -176,7 +178,10 @@ public:
     bool choose(Stamp stamp, const Id& choice);
     bool presentation_ready(uint64_t request);
 #ifdef ADVENTURE_DEBUG_JUMP
-    std::optional<JumpReport> debug_jump(const Id& event, const std::optional<Id>& node, size_t limit = 1024);
+    std::optional<JumpReport> debug_jump(const Id& event, const std::optional<Id>& node, size_t limit = 1024,
+        std::stop_token stop = {});
+    std::unique_ptr<EventSystem> debug_search_copy() const;
+    bool debug_adopt_search(const EventSystem& search);
     bool debug_restore();
     bool debug_parameter(const Id& set, const Id& name, Value value);
     std::vector<DebugWatch> debug_watches(const Id& event, bool current_only) const;
@@ -221,6 +226,8 @@ private:
     };
     std::optional<DebugState> saved_debug_;
     std::vector<JumpIssue>* jump_issues_ = nullptr;
+    const EventSystem* search_source_ = nullptr;
+    Stamp search_stamp_;
     DebugState debug_state() const;
     void restore_debug_state(DebugState state);
 #endif

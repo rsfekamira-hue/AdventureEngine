@@ -113,6 +113,19 @@ int main() {
             return issue.kind == JumpIssueKind::parameter && issue.after_update && issue.target == L"side" &&
                 issue.name == L"seen" && issue.expected == Value{true} && issue.actual == Value{false};
         }), "failed transfer did not report its post-update condition");
+        check(system.debug_restore(), "cannot restore before searching on a copy");
+        auto search = system.debug_search_copy();
+        std::stop_source stopped;
+        stopped.request_stop();
+        check(!search->debug_jump(L"side", Id{L"line"}, 1024, stopped.get_token()) &&
+            !system.debug_adopt_search(*search) && system.info().node == L"menu", "canceled search changed the game");
+        check(search->debug_jump(L"side", Id{L"line"}).has_value() && system.info().node == L"menu",
+            "speculative search changed the live game");
+        check(system.debug_parameter(L"shared", L"count", int32_t{3}) && !system.debug_adopt_search(*search) &&
+            system.debug_parameter(L"shared", L"count", int32_t{2}), "search overwrote an intervening edit");
+        check(system.debug_adopt_search(*search) && system.info().event == L"side" && !system.debug_adopt_search(*search),
+            "search result was not adopted exactly once");
+        check(system.debug_restore() && system.info().node == L"menu", "adopting a search lost the original state");
 #endif
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
