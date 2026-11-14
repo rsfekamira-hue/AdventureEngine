@@ -114,9 +114,13 @@ cargo run --locked -p engine-debug-cli -- --definition examples/minimal.json --e
 
 `examples/minimal.json` は作品データ不要の最小例。ゲーム側の操作列は同じ文法だが、検査するJSONパスと選択肢IDは対象アプリケーションが定義する。
 
+`debug-jump` を有効にすると、`EventSystem::jump_graph()` でジャンプ候補の `jumpNodes`、入口の表示ノード `entrance`、Flow内の `edges`、イベント間の `eventEdges` を取得できる。グラフは定義上の接続を示す。現在の条件で到達できるかはジャンプの探索結果で確認する。起動前の移動先検証には `validate_debug_jump_target()` を使う。表示名、プレビューと画面描画は利用側で追加する。
+
 ## CLIと画像撮影を接続する
 
 `engine_debug_tools::cli::run` は `Runner<T>` と入力・出力を受け取る。利用側は `CliHost<T>` の `display`（本文等の出力）と `capture`（撮影または地点通知）を実装する。quiet指定時も検査結果・明示的なshow・撮影結果は出力する。撮影前には通常操作と演出の完了を待ち、撮影の失敗にも行番号・コマンド・現在地を付ける。Core CLIにも `--quiet` を指定できる。
+
+起動中のアプリを高速進行させる場合は `engine_debug_tools::run` の `RunMode::action` と `RunSteps` を使える。停止判定と仮想ステップの上限を共通化し、通常入力とフレーム更新は利用側で実行する。
 
 `engine_capture::Capture::new(width, height)` で撮影環境を作り、`context()` へフォント・画像を登録する。`save(path, |ctx| { /* 通常UIを描画 */ })` は初回のフォント・配置更新を含む2回の描画を行い、RGBAのPNGを保存する。コールバック内ではゲームを進行させず、表示状態を読み取る。サイズは0およびGPU上限超過を拒否する。出力先の親フォルダは呼出し側が用意する。
 

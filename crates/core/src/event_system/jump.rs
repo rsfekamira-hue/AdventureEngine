@@ -2,6 +2,8 @@ use super::*;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 
+mod graph;
+
 /// Debug-only operations. Ordinary player input cannot invoke these commands.
 pub enum JumpCommand {
     Go {
@@ -35,33 +37,6 @@ struct Candidate {
     entered: bool,
 }
 impl EventSystem {
-    /// Graph definitions are exposed only in a debug build, never used as runtime state.
-    pub fn jump_graph(&self) -> Value {
-        let events: Vec<_> = self
-            .events
-            .entries
-            .iter()
-            .filter_map(|e| {
-                e.definition
-                    .flow
-                    .as_ref()
-                    .map(|f| json!({"id":e.definition.id,"flow":f}))
-            })
-            .collect();
-        let rules: Vec<_> = self
-            .events
-            .entries
-            .iter()
-            .flat_map(|e| &e.definition.interventions)
-            .chain(
-                self.interceptors
-                    .entries
-                    .iter()
-                    .flat_map(|i| &i.interventions),
-            )
-            .collect();
-        json!({"events":events,"rules":rules})
-    }
     pub fn debug_parameters(&self) -> Value {
         json!(self.parameters.sets)
     }
@@ -258,7 +233,20 @@ impl EventSystem {
             Vec::new()
         }
     }
-    pub fn start_debug_jump(&self, event: &str, node: Option<&str>) -> Result<JumpSearch, String> {
+    /// Check the destination without running the search or changing progress.
+    pub fn validate_debug_jump_target(
+        &self,
+        event: &str,
+        node: Option<&str>,
+    ) -> Result<(), String> {
+        self.debug_jump_target(event, node).map(|_| ())
+    }
+
+    fn debug_jump_target(
+        &self,
+        event: &str,
+        node: Option<&str>,
+    ) -> Result<(EventId, String), String> {
         let target = self.event_id(event).ok_or("イベントがありません")?;
         let flow = self
             .event(target)
@@ -266,11 +254,7 @@ impl EventSystem {
             .flow
             .as_ref()
             .ok_or("監視専用イベントには移動できません")?;
-        if !flow
-            .flow_nodes
-            .values()
-            .any(|n| !n.generated && matches!(n.kind, FlowNodeKind::Advance | FlowNodeKind::Choice))
-        {
+        if !flow.flow_nodes.values().any(is_jump_node) {
             return Err("表示可能なノードがないイベントです".into());
         }
         let destination = node.unwrap_or(&flow.start_flow_node).to_owned();
@@ -278,15 +262,14 @@ impl EventSystem {
             .flow_nodes
             .get(&destination)
             .ok_or("フロウノードがありません")?;
-        if node.is_some()
-            && (target_node.generated
-                || !matches!(
-                    target_node.kind,
-                    FlowNodeKind::Advance | FlowNodeKind::Choice
-                ))
-        {
+        if node.is_some() && !is_jump_node(target_node) {
             return Err("表示可能なフロウノードを選択してください".into());
         }
+        Ok((target, destination))
+    }
+
+    pub fn start_debug_jump(&self, event: &str, node: Option<&str>) -> Result<JumpSearch, String> {
+        let (target, destination) = self.debug_jump_target(event, node)?;
         // Reverse structural distances guide bounded search; only real transitions determine success.
         let mut edges: Vec<((EventId, String), (EventId, String))> = Vec::new();
         for (i, e) in self.events.entries.iter().enumerate() {
@@ -306,18 +289,7 @@ impl EventSystem {
                 }
             }
         }
-        for r in self
-            .events
-            .entries
-            .iter()
-            .flat_map(|e| &e.definition.interventions)
-            .chain(
-                self.interceptors
-                    .entries
-                    .iter()
-                    .flat_map(|i| &i.interventions),
-            )
-        {
+        for r in self.debug_interventions() {
             let Some(from) = self.event_id(&r.target.event) else {
                 continue;
             };
@@ -580,10 +552,7 @@ impl JumpSearch {
                         .unwrap()
                         .flow_nodes
                         .iter()
-                        .find(|(_, n)| {
-                            !n.generated
-                                && matches!(n.kind, FlowNodeKind::Advance | FlowNodeKind::Choice)
-                        })
+                        .find(|(_, n)| is_jump_node(n))
                         .unwrap()
                         .0
                         .clone();
@@ -634,6 +603,10 @@ impl JumpSearch {
         };
         (result.state, report)
     }
+}
+
+fn is_jump_node(node: &FlowNode) -> bool {
+    !node.generated && matches!(node.kind, FlowNodeKind::Advance | FlowNodeKind::Choice)
 }
 
 fn event_name(state: &EventSystem) -> &str {
